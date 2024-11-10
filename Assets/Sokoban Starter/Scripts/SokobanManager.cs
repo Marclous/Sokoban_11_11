@@ -1,61 +1,157 @@
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.UIElements;
 
 public class SokobanManager : MonoBehaviour
 {
     public GridObject player;
+    private Vector2Int lastGridPosition;
+    private Vector2Int lastDirection;
+    private Dictionary<Vector2Int, GridObject> gridObjects = new Dictionary<Vector2Int, GridObject>();
     public List<GridObject> walls;
     public List<GridObject> smoothBlocks;
     public List<GridObject> stickyBlocks;
     public List<GridObject> clingyBlocks;
 
+    private void Awake()
+    {
+        // Initialize grid objects dictionary by finding all GridObjects in the scene
+        RegisterAllGridObjects();
+        if (player != null)
+        {
+            lastGridPosition = player.gridPosition;
+        }
+    }
     private void Update()
     {
+        if (player == null) return;
+
+        // Calculate the player's movement direction based on their grid position change
+        Vector2Int currentGridPosition = player.gridPosition;
+        lastDirection = currentGridPosition - lastGridPosition;
+
+        // Only proceed if the player has moved to a new grid position
+        if (lastDirection != Vector2Int.zero)
+        {
+            // Check adjacent block in the direction of movement
+            //CheckAdjacentBlockInDirection(lastDirection);
+
+            // Update last position to the current position
+            //lastGridPosition = currentGridPosition;
+        }
         HandlePlayerMovement();
         HandleStickyBehavior();
-        HandleClingyBehavior();
+        //HandleClingyBehavior();
     }
+    private void RegisterAllGridObjects()
+    {
+        // Find all GridObject instances in the scene
+        GridObject[] objects = FindObjectsOfType<GridObject>();
+
+        // Register each GridObject with its grid position
+        foreach (var obj in objects)
+        {
+            gridObjects[obj.gridPosition] = obj;
+        }
+    }
+
 
     void HandlePlayerMovement()
     {
-        Vector2Int targetPosition = player.gridPosition;
+        // Start with the current player position and a variable for the intended target position
+        Vector2Int direction = Vector2Int.zero;
 
+        // Determine the direction based on input without directly modifying targetPosition
         if (Input.GetKeyDown(KeyCode.W))
-            targetPosition += Vector2Int.down;
+            direction = Vector2Int.down;
         else if (Input.GetKeyDown(KeyCode.S))
-            targetPosition += Vector2Int.up;
+            direction = Vector2Int.up;
         else if (Input.GetKeyDown(KeyCode.A))
-            targetPosition += Vector2Int.left;
+            direction = Vector2Int.left;
         else if (Input.GetKeyDown(KeyCode.D))
-            targetPosition += Vector2Int.right;
+            direction = Vector2Int.right;
+        // If no movement key is pressed, return early
+        if (direction == Vector2Int.zero)
+            return;
 
-        if (IsPositionValid(targetPosition) && IsPositionEmpty(targetPosition, walls))
+        // Calculate the target position based on the direction
+        Vector2Int targetPosition = player.gridPosition + direction;
+        Vector2Int backPosition = player.gridPosition - direction;
+        Debug.Log("targetposition" + targetPosition);
+        Debug.Log("backposition" + backPosition);
+        GridObject adjacentBlock = GetBlockAtPosition(targetPosition);
+        GridObject pullBlock = GetBlockAtPosition(backPosition);
+
+        // Check if the target position is within the grid and not occupied by a wall
+        if (IsPositionValid(targetPosition) && IsPositionEmpty(targetPosition, walls) && IsPositionEmpty(targetPosition, clingyBlocks))
         {
-            // Check if there is a Smooth or Clingy block at the target position
-            GridObject smoothOrClingy = FindBlockAtPosition(targetPosition, smoothBlocks, clingyBlocks);
-            if (smoothOrClingy != null)
+            
+            if (adjacentBlock != null || pullBlock != null)
             {
-                Vector2Int pushPosition = targetPosition + (targetPosition - player.gridPosition);
-                if (IsPositionValid(pushPosition) && IsPositionEmpty(pushPosition))
+                Vector2Int pushPosition = targetPosition + direction;
+
+                if (smoothBlocks.Contains(adjacentBlock) && TryPushBlock(adjacentBlock, direction))
                 {
-                    if (smoothBlocks.Contains(smoothOrClingy))
-                    {
-                        smoothOrClingy.gridPosition = pushPosition;
-                    }
-                    else if (clingyBlocks.Contains(smoothOrClingy))
-                    {
-                        player.gridPosition = targetPosition;
-                    }
+                    MoveBlock(player, targetPosition);
+                }else if (clingyBlocks.Contains(pullBlock))
+                {
+                    // If pulling, the Clingy block should move to the player’s previous position
+                    MoveBlock(player, targetPosition);
+                    MoveBlock(pullBlock, player.gridPosition-direction);
+                    
+                }else if(smoothBlocks.Contains(pullBlock) || walls.Contains(pullBlock) || stickyBlocks.Contains(pullBlock)){
+                    MoveBlock(player, targetPosition);
                 }
+                
             }
             else
             {
-                player.gridPosition = targetPosition;
+                MoveBlock(player, targetPosition);
             }
         }
     }
 
-    void HandleStickyBehavior()
+    private bool TryPushBlock(GridObject block, Vector2Int direction)
+    {
+        Vector2Int targetPosition = block.gridPosition + direction;
+        
+        // Check if the position is within bounds and empty or has another Smooth block
+        if (!IsPositionValid(targetPosition) || !IsPositionEmpty(targetPosition, walls))
+            return false;
+
+        GridObject nextBlock = GetBlockAtPosition(targetPosition);
+
+        if (nextBlock != null)
+        {
+            if (smoothBlocks.Contains(nextBlock))
+            {
+                // Recursively attempt to push the next Smooth block
+                if (!TryPushBlock(nextBlock, direction))
+                    return false;
+            }
+            else
+            {
+                // Block is immovable, so we can't push
+                return false;
+            }
+        }
+
+        // Move the current block to the target position if it's free or movable
+        MoveBlock(block, targetPosition);
+        return true;
+    }
+
+    private void MoveBlock(GridObject block, Vector2Int newPosition)
+    {
+        // Remove the old position from gridObjects
+        gridObjects.Remove(block.gridPosition);
+
+        // Update the block's grid position and re-add it to gridObjects
+        block.gridPosition = newPosition;
+        gridObjects[newPosition] = block;
+    }
+
+    private void HandleStickyBehavior()
     {
         foreach (GridObject sticky in stickyBlocks)
         {
@@ -67,7 +163,7 @@ public class SokobanManager : MonoBehaviour
             {
                 Vector2Int newStickyPosition = sticky.gridPosition + moveDirection;
                 if (IsPositionValid(newStickyPosition) && IsPositionEmpty(newStickyPosition))
-                    sticky.gridPosition = newStickyPosition;
+                    MoveBlock(sticky, newStickyPosition);
             }
         }
     }
@@ -97,32 +193,40 @@ public class SokobanManager : MonoBehaviour
     }
 
     bool IsPositionEmpty(Vector2Int position, List<GridObject> specificList = null)
-{
-    // Check specified list if provided
-    if (specificList != null)
     {
-        foreach (GridObject obj in specificList)
-            if (obj.gridPosition == position)
-                return false;
+        // Check specified list if provided
+        if (specificList != null)
+        {
+            foreach (GridObject obj in specificList)
+                if (obj.gridPosition == position)
+                    return false;
+        }
+        return true;
     }
-    
-    // Check all blocks if no specific list is given
-    foreach (GridObject wall in walls)
-        if (wall.gridPosition == position)
-            return false;
-    foreach (GridObject block in smoothBlocks)
-        if (block.gridPosition == position)
-            return false;
-    foreach (GridObject block in stickyBlocks)
-        if (block.gridPosition == position)
-            return false;
-    foreach (GridObject block in clingyBlocks)
-        if (block.gridPosition == position)
-            return false;
 
-    return position != player.gridPosition;
-}
 
+    GridObject GetBlockAtPosition(Vector2Int position)
+    {
+        // Check each list of blocks for a block at the specified position
+        foreach (GridObject wall in walls)
+            if (wall.gridPosition == position)
+                return wall;
+
+        foreach (GridObject smooth in smoothBlocks)
+            if (smooth.gridPosition == position)
+                return smooth;
+
+        foreach (GridObject sticky in stickyBlocks)
+            if (sticky.gridPosition == position)
+                return sticky;
+
+        foreach (GridObject clingy in clingyBlocks)
+            if (clingy.gridPosition == position)
+                return clingy;
+
+        // Return null if no block is found at the position
+        return null;
+    }
     GridObject FindBlockAtPosition(Vector2Int position, List<GridObject> list1, List<GridObject> list2 = null, List<GridObject> list3 = null, List<GridObject> list4 = null)
     {
         foreach (GridObject block in list1)

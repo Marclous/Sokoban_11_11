@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using JetBrains.Annotations;
 using UnityEngine;
 using UnityEngine.UIElements;
 
@@ -41,7 +42,6 @@ public class SokobanManager : MonoBehaviour
         }
         HandlePlayerMovement();
         HandleStickyBehavior();
-        //HandleClingyBehavior();
     }
     private void RegisterAllGridObjects()
     {
@@ -109,6 +109,22 @@ public class SokobanManager : MonoBehaviour
                 MoveBlock(player, targetPosition);
             }
         }
+
+        foreach (GridObject sticky in stickyBlocks)
+        {
+            // Check if the Sticky block is adjacent to the player
+            if (IsAdjacentTo(player.gridPosition, sticky.gridPosition))
+            {
+                // Calculate the direction from the Sticky block to the player's last move
+                Vector2Int moveDirection = direction;
+                
+                // Ensure the Sticky block can move in this direction
+                Vector2Int newStickyPosition = sticky.gridPosition + moveDirection;
+                
+                MoveBlock(sticky, newStickyPosition);
+                
+            }
+        }
     }
 
     private bool TryPushBlock(GridObject block, Vector2Int direction)
@@ -151,39 +167,11 @@ public class SokobanManager : MonoBehaviour
         gridObjects[newPosition] = block;
     }
 
-    private void HandleStickyBehavior()
+     private void HandleStickyBehavior()
     {
-        foreach (GridObject sticky in stickyBlocks)
-        {
-            Vector2Int moveDirection = Vector2Int.zero;
-            if (IsAdjacentTo(player.gridPosition, sticky.gridPosition))
-                moveDirection = player.gridPosition - sticky.gridPosition;
-
-            if (moveDirection != Vector2Int.zero)
-            {
-                Vector2Int newStickyPosition = sticky.gridPosition + moveDirection;
-                if (IsPositionValid(newStickyPosition) && IsPositionEmpty(newStickyPosition))
-                    MoveBlock(sticky, newStickyPosition);
-            }
-        }
+        
     }
 
-    void HandleClingyBehavior()
-    {
-        foreach (GridObject clingy in clingyBlocks)
-        {
-            Vector2Int pullDirection = Vector2Int.zero;
-            if (IsAdjacentTo(player.gridPosition, clingy.gridPosition))
-                pullDirection = player.gridPosition - clingy.gridPosition;
-
-            if (pullDirection != Vector2Int.zero)
-            {
-                Vector2Int newClingyPosition = clingy.gridPosition + pullDirection;
-                if (IsPositionValid(newClingyPosition) && IsPositionEmpty(newClingyPosition))
-                    clingy.gridPosition = newClingyPosition;
-            }
-        }
-    }
 
     bool IsPositionValid(Vector2Int position)
     {
@@ -243,6 +231,7 @@ public class SokobanManager : MonoBehaviour
 
     bool IsAdjacentTo(Vector2Int pos1, Vector2Int pos2)
     {
+        
         return (pos1 - pos2).sqrMagnitude == 1;
     }
 }

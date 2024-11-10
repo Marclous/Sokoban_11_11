@@ -85,7 +85,7 @@ public class SokobanManager : MonoBehaviour
         // Check if the target position is within the grid and not occupied by a wall
         if (IsPositionValid(targetPosition) && IsPositionEmpty(targetPosition, walls) && IsPositionEmpty(targetPosition, clingyBlocks))
         {
-            
+
             if (adjacentBlock != null || pullBlock != null)
             {
                 Vector2Int pushPosition = targetPosition + direction;
@@ -93,16 +93,19 @@ public class SokobanManager : MonoBehaviour
                 if (smoothBlocks.Contains(adjacentBlock) && TryPushBlock(adjacentBlock, direction))
                 {
                     MoveBlock(player, targetPosition);
-                }else if (clingyBlocks.Contains(pullBlock))
+                }
+                else if (clingyBlocks.Contains(pullBlock))
                 {
                     // If pulling, the Clingy block should move to the player’s previous position
                     MoveBlock(player, targetPosition);
-                    MoveBlock(pullBlock, player.gridPosition-direction);
-                    
-                }else if(smoothBlocks.Contains(pullBlock) || walls.Contains(pullBlock) || stickyBlocks.Contains(pullBlock)){
+                    MoveBlock(pullBlock, player.gridPosition - direction);
+
+                }
+                else if ( (smoothBlocks.Contains(pullBlock) || walls.Contains(pullBlock) || stickyBlocks.Contains(pullBlock)) && IsPositionEmpty(targetPosition,clingyBlocks) && IsPositionEmpty(targetPosition, stickyBlocks))
+                {
                     MoveBlock(player, targetPosition);
                 }
-                
+
             }
             else
             {
@@ -110,27 +113,12 @@ public class SokobanManager : MonoBehaviour
             }
         }
 
-        foreach (GridObject sticky in stickyBlocks)
-        {
-            // Check if the Sticky block is adjacent to the player
-            if (IsAdjacentTo(player.gridPosition, sticky.gridPosition))
-            {
-                // Calculate the direction from the Sticky block to the player's last move
-                Vector2Int moveDirection = direction;
-                
-                // Ensure the Sticky block can move in this direction
-                Vector2Int newStickyPosition = sticky.gridPosition + moveDirection;
-                
-                MoveBlock(sticky, newStickyPosition);
-                
-            }
-        }
     }
 
     private bool TryPushBlock(GridObject block, Vector2Int direction)
     {
         Vector2Int targetPosition = block.gridPosition + direction;
-        
+
         // Check if the position is within bounds and empty or has another Smooth block
         if (!IsPositionValid(targetPosition) || !IsPositionEmpty(targetPosition, walls))
             return false;
@@ -167,10 +155,31 @@ public class SokobanManager : MonoBehaviour
         gridObjects[newPosition] = block;
     }
 
-     private void HandleStickyBehavior()
+    private void HandleStickyBehavior()
     {
-        
+        foreach (GridObject sticky in stickyBlocks)
+        {
+            // Check each movement direction for adjacent blocks that could be moving
+            foreach (Vector2Int direction in new Vector2Int[] { Vector2Int.up, Vector2Int.down, Vector2Int.left, Vector2Int.right })
+            {
+                Vector2Int adjacentPosition = sticky.gridPosition + direction;
+                GridObject adjacentBlock = GetBlockAtPosition(adjacentPosition);
+
+                if (adjacentBlock != null && (adjacentBlock == player || smoothBlocks.Contains(adjacentBlock)))
+                {
+                    // Calculate the target position in the direction of the adjacent block's movement
+                    Vector2Int stickyTargetPosition = sticky.gridPosition + direction;
+
+                    // Ensure Sticky block can move in that direction (i.e., the target position is valid and unoccupied)
+                    if (IsPositionValid(stickyTargetPosition) && IsPositionEmpty(stickyTargetPosition) && stickyTargetPosition != player.gridPosition)
+                    {
+                        MoveBlock(sticky, stickyTargetPosition);
+                    }
+                }
+            }
+        }
     }
+
 
 
     bool IsPositionValid(Vector2Int position)
@@ -231,7 +240,7 @@ public class SokobanManager : MonoBehaviour
 
     bool IsAdjacentTo(Vector2Int pos1, Vector2Int pos2)
     {
-        
+
         return (pos1 - pos2).sqrMagnitude == 1;
     }
 }

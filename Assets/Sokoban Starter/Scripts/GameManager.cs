@@ -3,124 +3,105 @@ using UnityEngine;
 
 public class GameManager : MonoBehaviour
 {
-    // Dictionary to store grid positions and the objects in each cell
-    private Dictionary<Vector2Int, GameObject> grid = new Dictionary<Vector2Int, GameObject>();
-    public float moveDelay = 0.2f; // Delay to control movement speed
+    public GridObject player;  // Assign Player in Inspector
+    public List<GridObject> walls, smoothBlocks, stickyBlocks, clingyBlocks;  // Assign blocks in Inspector
 
-    public GameObject player;
-    private Vector2Int playerPosition;
+    private Dictionary<Vector2Int, GridObject> gridMap = new Dictionary<Vector2Int, GridObject>();
 
-    private void Start()
+    void Start()
     {
-        InitializeGrid();
+        InitializeGridMap();
     }
 
-    private void InitializeGrid()
-    {
-        // Initialize grid with all block positions
-        foreach (GridObject obj in FindObjectsOfType<GridObject>())
-        {
-            Vector2Int pos = obj.gridPosition;
-            if (!grid.ContainsKey(pos))
-            {
-                grid[pos] = obj.gameObject;
-            }
-
-            if (obj.gameObject.CompareTag("Player"))
-            {
-                player = obj.gameObject;
-                playerPosition = pos;
-            }
-        }
-    }
-
-    private void Update()
+    void Update()
     {
         HandlePlayerInput();
+    }
+
+    private void InitializeGridMap()
+    {
+        foreach (var wall in walls) gridMap[wall.gridPosition] = wall;
+        foreach (var smooth in smoothBlocks) gridMap[smooth.gridPosition] = smooth;
+        foreach (var sticky in stickyBlocks) gridMap[sticky.gridPosition] = sticky;
+        foreach (var clingy in clingyBlocks) gridMap[clingy.gridPosition] = clingy;
+        gridMap[player.gridPosition] = player;
     }
 
     private void HandlePlayerInput()
     {
         Vector2Int direction = Vector2Int.zero;
 
-        // Get WASD input and set direction
-        if (Input.GetKeyDown(KeyCode.W)) direction = Vector2Int.down;
-        else if (Input.GetKeyDown(KeyCode.S)) direction = Vector2Int.up;
+        if (Input.GetKeyDown(KeyCode.W)) direction = Vector2Int.up;
+        else if (Input.GetKeyDown(KeyCode.S)) direction = Vector2Int.down;
         else if (Input.GetKeyDown(KeyCode.A)) direction = Vector2Int.left;
         else if (Input.GetKeyDown(KeyCode.D)) direction = Vector2Int.right;
 
         if (direction != Vector2Int.zero)
-        {
-            Vector2Int targetPos = playerPosition + direction;
-            MoveBlock(playerPosition, targetPos, direction, player);
-        }
+            MoveBlock(player, direction);
     }
 
-    private void MoveBlock(Vector2Int startPos, Vector2Int targetPos, Vector2Int direction, GameObject mover)
+    private void MoveBlock(GridObject block, Vector2Int direction)
     {
-        if (!grid.ContainsKey(targetPos) && IsWithinGridBounds(targetPos))
+        Vector2Int targetPos = block.gridPosition + direction;
+
+        // Prevent moving beyond grid bounds
+        if (!IsWithinBounds(targetPos))
+            return;
+
+        // Check if target position is occupied
+        if (gridMap.TryGetValue(targetPos, out GridObject otherBlock))
         {
-            grid.Remove(startPos);
-            grid[targetPos] = mover;
-
-            // Update position in the GridObject component
-            GridObject gridObj = mover.GetComponent<GridObject>();
-            gridObj.gridPosition = targetPos;
-
-            if (mover.CompareTag("Player"))
+            // Handle interactions based on block types
+            if (otherBlock == player) return;
+            else if (walls.Contains(otherBlock)) return;  // Wall is immovable
+            else if (smoothBlocks.Contains(otherBlock) || stickyBlocks.Contains(otherBlock))
             {
-                playerPosition = targetPos;
+                MoveBlock(otherBlock, direction);  // Push Smooth or Sticky blocks
+                if (gridMap.ContainsKey(targetPos)) return;  // Blocked, no movement
             }
-
-            // Handle special cases for Sticky and Clingy blocks
-            HandleSpecialBlocks(targetPos, direction);
-        }
-    }
-
-    private void HandleSpecialBlocks(Vector2Int currentPos, Vector2Int direction)
-    {
-        foreach (var entry in grid)
-        {
-            GameObject obj = entry.Value;
-            if (obj.CompareTag("Sticky"))
+            else if (clingyBlocks.Contains(otherBlock))
             {
-                MoveStickyBlock(entry.Key, direction);
-            }
-            else if (obj.CompareTag("Clingy"))
-            {
-                PullClingyBlock(entry.Key, direction);
+                // Only move Clingy block if pulled
+                if (block == player)
+                    PullBlock(otherBlock, direction);
             }
         }
+
+        // Update positions if not blocked
+        UpdatePosition(block, targetPos);
+
+        // Handle sticky block chaining
+        if (stickyBlocks.Contains(block))
+            MoveStickyAdjacentBlocks(block, direction);
     }
 
-    private void MoveStickyBlock(Vector2Int stickyPos, Vector2Int direction)
+    private void PullBlock(GridObject clingy, Vector2Int direction)
     {
-        Vector2Int targetPos = stickyPos + direction;
-        if (!grid.ContainsKey(targetPos) && IsWithinGridBounds(targetPos))
+        Vector2Int pullPos = clingy.gridPosition - direction;
+        if (gridMap.TryGetValue(pullPos, out GridObject puller) && puller == player)
+            UpdatePosition(clingy, clingy.gridPosition + direction);
+    }
+
+    private void MoveStickyAdjacentBlocks(GridObject sticky, Vector2Int direction)
+    {
+        foreach (var stickyNeighbor in stickyBlocks)
         {
-            GameObject sticky = grid[stickyPos];
-            grid.Remove(stickyPos);
-            grid[targetPos] = sticky;
-            sticky.GetComponent<GridObject>().gridPosition = targetPos;
+            Vector2Int neighborPos = stickyNeighbor.gridPosition - direction;
+            if (neighborPos == sticky.gridPosition)
+                MoveBlock(stickyNeighbor, direction);
         }
     }
 
-    private void PullClingyBlock(Vector2Int clingyPos, Vector2Int direction)
+    private bool IsWithinBounds(Vector2Int position)
     {
-        Vector2Int targetPos = clingyPos - direction;
-        if (grid.ContainsKey(targetPos) && grid[targetPos].CompareTag("Player"))
-        {
-            grid.Remove(clingyPos);
-            grid[clingyPos - direction] = grid[clingyPos];
-            grid[clingyPos].GetComponent<GridObject>().gridPosition = clingyPos - direction;
-        }
+        return position.x >= 0 && position.x < GridMaker.reference.dimensions.x &&
+               position.y >= 0 && position.y < GridMaker.reference.dimensions.y;
     }
 
-    private bool IsWithinGridBounds(Vector2Int pos)
+    private void UpdatePosition(GridObject block, Vector2Int newPosition)
     {
-        // Check if position is within grid boundaries based on grid dimensions
-        return pos.x > 0 && pos.y > 0 &&
-               pos.x <= (int)GridMaker.reference.dimensions.x &&
-               pos.y <= (int)GridMaker.reference.dimensions.y;
+        gridMap.Remove(block.gridPosition);
+        block.gridPosition = newPosition;
+        gridMap[newPosition] = block;
     }
 }
